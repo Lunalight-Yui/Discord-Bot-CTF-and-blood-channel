@@ -2,13 +2,14 @@ const {
   SlashCommandBuilder, PermissionFlagsBits, ChannelType, MessageFlags,
   ActionRowBuilder, ButtonBuilder, ButtonStyle, EmbedBuilder,
 } = require('discord.js')
+require('dotenv').config()
 
 module.exports = {
-  guilds: [''],// For specific guild. But if you want to specific -> ex: ['151515151']. If want to global, remove this
+  guilds: [process.env.guildid],// For specific guild. But if you want to specific -> ex: ['151515151']. If want to global, remove this
   data: new SlashCommandBuilder()
     .setName('setup-ticket')
     .setDescription('Sending ticket panel')
-    .setDefaultMemberPermissions(PermissionFlagsBits.Administrator || PermissionFlagsBits.ManageChannels)
+    .setDefaultMemberPermissions(PermissionFlagsBits.ManageChannels)
     .setContexts(0)
     .addChannelOption(o =>
       o.setName('category')
@@ -42,7 +43,7 @@ module.exports = {
       o.setName('description').setDescription('panel description').setMaxLength(1000)),
 
   async execute(interaction) {
-    if (!interaction.member.permissions.has(PermissionFlagsBits.Administrator || PermissionFlagsBits.ManageChannels)) {
+    if (!interaction.member.permissions.has(PermissionFlagsBits.ManageChannels)) {
       return interaction.reply({ content: 'You do not have this permission', flags: MessageFlags.Ephemeral })
     }
 
@@ -75,6 +76,7 @@ module.exports = {
                 PermissionFlagsBits.ViewChannel,
                 PermissionFlagsBits.SendMessages,
                 PermissionFlagsBits.EmbedLinks,
+                PermissionFlagsBits.ManageChannels,
               ],
             },
             {

@@ -88,48 +88,82 @@ async function openTicket(interaction, categoryId, logChannelId, staffRoles) {
     return interaction.editReply('This category is full, please contact an admin.')
   }
 
+  let permissionSnapshot
   try {
+    const botMember = guild.members.me ?? await guild.members.fetchMe()
+    const botPermissions = category.permissionsFor(botMember)
+    const permissionOverwrites = [
+      { id: guild.id, deny: [PermissionFlagsBits.ViewChannel] },
+      {
+        id: user.id,
+        allow: [
+          PermissionFlagsBits.ViewChannel,
+          PermissionFlagsBits.SendMessages,
+          PermissionFlagsBits.ReadMessageHistory,
+          PermissionFlagsBits.AttachFiles,
+        ],
+      },
+      ...staffRoleIds.map(id => ({
+        id,
+        allow: [
+          PermissionFlagsBits.ViewChannel,
+          PermissionFlagsBits.SendMessages,
+          PermissionFlagsBits.ReadMessageHistory,
+        ],
+      })),
+      {
+        id: interaction.client.user.id,
+        allow: [
+          PermissionFlagsBits.ViewChannel,
+          PermissionFlagsBits.SendMessages,
+          PermissionFlagsBits.EmbedLinks,
+          PermissionFlagsBits.ReadMessageHistory,
+          PermissionFlagsBits.ManageChannels,
+        ],
+      },
+    ]
+    const permissionLabels = new Map(
+      Object.entries(PermissionFlagsBits).map(([name, permission]) => [
+        permission,
+        name.replace(/([a-z0-9])([A-Z])/g, '$1 $2'),
+      ]),
+    )
+    permissionLabels.set(PermissionFlagsBits.ManageRoles, 'Manage Roles (Manage Permissions)')
+
+    const requiredPermissionBits = new Set([
+      PermissionFlagsBits.ManageChannels,
+      PermissionFlagsBits.ManageRoles,
+      ...permissionOverwrites.flatMap(overwrite => [
+        ...(overwrite.allow ?? []),
+        ...(overwrite.deny ?? []),
+      ]),
+    ])
+    const requiredBotPermissions = [...requiredPermissionBits].map(permission => [
+      permissionLabels.get(permission) ?? String(permission),
+      permission,
+    ])
+    permissionSnapshot = Object.fromEntries(
+      requiredBotPermissions.map(([name, permission]) => [name, botPermissions?.has(permission) ?? false]),
+    )
+    const missingPermissions = requiredBotPermissions
+      .filter(([, permission]) => !botPermissions?.has(permission))
+      .map(([name]) => name)
+
+    if (missingPermissions.length) {
+      console.error(
+        `[ticket] Bot is missing ${missingPermissions.join(', ')} in category ${category.id}.`,
+      )
+      return interaction.editReply(
+        `Cannot create a ticket: the bot is missing these permissions in the ticket category: ${missingPermissions.join(', ')}.`,
+      )
+    }
+
     const channel = await guild.channels.create({
       name: `ticket-${user.username}`.slice(0, 100),
       type: ChannelType.GuildText,
       parent: categoryId,
       topic: `ticket:${user.id}:${staffRoleIds.join(',')}:${logChannelId}`,
-      permissionOverwrites: [
-        { id: guild.id, deny: [PermissionFlagsBits.ViewChannel] },
-        {
-          id: user.id,
-          allow: [
-            PermissionFlagsBits.ViewChannel,
-            PermissionFlagsBits.SendMessages,
-            PermissionFlagsBits.ReadMessageHistory,
-            PermissionFlagsBits.AttachFiles,
-          ],
-          deny: [
-            PermissionFlagsBits.CreatePublicThreads,
-            PermissionFlagsBits.CreatePrivateThreads,
-            PermissionFlagsBits.SendPolls,
-            PermissionFlagsBits.UseApplicationCommands,
-          ],
-        },
-        ...staffRoleIds.map(id => ({
-          id,
-          allow: [
-            PermissionFlagsBits.ViewChannel,
-            PermissionFlagsBits.SendMessages,
-            PermissionFlagsBits.ReadMessageHistory,
-            PermissionFlagsBits.ManageMessages,
-          ],
-        })),
-        {
-          id: interaction.client.user.id,
-          allow: [
-            PermissionFlagsBits.ViewChannel,
-            PermissionFlagsBits.SendMessages,
-            PermissionFlagsBits.ReadMessageHistory, // needed to fetch messages for transcript
-            PermissionFlagsBits.ManageChannels,
-          ],
-        },
-      ],
+      permissionOverwrites,
       reason: `Ticket by ${user.tag}`,
     })
 
@@ -157,8 +191,32 @@ async function openTicket(interaction, categoryId, logChannelId, staffRoles) {
 
     await interaction.editReply(`Ticket created: ${channel}`)
   } catch (err) {
-    console.error(err)
-    await interaction.editReply('Cannot create a ticket in that category, please check the bot permissions.')
+    console.error('[ticket] Failed to create ticket channel:', err)
+    if (err.code === 50013) {
+      console.error('[ticket] Permission snapshot:', {
+        guildId: guild.id,
+        categoryId: category.id,
+        botId: guild.members.me?.id,
+        staffRoleIds,
+        permissions: permissionSnapshot,
+      })
+    }
+    const missingPermissions = permissionSnapshot
+      ? Object.entries(permissionSnapshot)
+        .filter(([, hasPermission]) => !hasPermission)
+        .map(([name]) => name)
+      : null
+    let errorMessage = 'Cannot create a ticket in that category. Check the bot permissions and try again.'
+    if (err.code === 50013) {
+      if (missingPermissions === null) {
+        errorMessage = 'Discord denied ticket creation (50013), and the bot permission check could not complete. Check the console log.'
+      } else if (missingPermissions.length) {
+        errorMessage = `Discord denied ticket creation (50013). Missing bot permissions: ${missingPermissions.join(', ')}.`
+      } else {
+        errorMessage = 'Discord denied ticket creation (50013), but no permissions used by the ticket overwrites are missing. Check the console snapshot for a guild-specific restriction.'
+      }
+    }
+    await interaction.editReply(errorMessage)
   }
 }
 

@@ -3,11 +3,12 @@ const {
   EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle, RoleSelectMenuBuilder,
 } = require('discord.js')
 const { roleProblem, buildRoleRows } = require('../../handlers/react-role.js')
+require('dotenv').config()
 
 const SETUP_TIMEOUT = 5 * 60_000
 
 module.exports = {
-    guilds: [''], // For specific guild. But if you want to specific -> ex: ['151515151']. If want to global, remove this
+    guilds: [process.env.guildid], // For specific guild. But if you want to specific -> ex: ['151515151']. If want to global, remove this
   data: new SlashCommandBuilder()
     .setName('react-role')
     .setDescription('Post a role panel: members click a button to get or remove a role')
